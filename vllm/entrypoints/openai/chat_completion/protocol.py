@@ -292,6 +292,22 @@ class ChatCompletionRequest(OpenAIBaseModel):
             "if the served model does not use priority scheduling."
         ),
     )
+    dag_id: str | None = Field(
+        default=None,
+        description=(
+            "DAG identifier registered via POST /v1/dags. When set together "
+            "with node_id, the server computes scheduling priority from the "
+            "DAG's critical-path remaining cost. Overrides the priority field "
+            "when the dag_id is known to the registry."
+        ),
+    )
+    node_id: str | None = Field(
+        default=None,
+        description=(
+            "Node identifier within the DAG specified by dag_id. "
+            "Used together with dag_id for server-side cp_remaining lookup."
+        ),
+    )
     request_id: str = Field(
         default_factory=random_uuid,
         description=(

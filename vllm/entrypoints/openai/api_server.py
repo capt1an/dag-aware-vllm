@@ -189,6 +189,10 @@ def build_app(
 
     register_models_api_router(app)
 
+    from vllm.dag_api_router import attach_router as register_dag_api_router
+
+    register_dag_api_router(app)
+
     from vllm.entrypoints.sagemaker.api_router import (
         attach_router as register_sagemaker_api_router,
     )

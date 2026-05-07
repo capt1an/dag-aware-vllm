@@ -312,13 +312,25 @@ class OpenAIServingChat(OpenAIServing):
                 else:
                     reasoning_ended = None
 
+                # DAG-aware priority: if dag_id + node_id are present, look up
+                # cp_remaining from the server-side registry; else fall back to
+                # the raw priority field the client supplied.
+                _priority = request.priority
+                if request.dag_id and request.node_id:
+                    from vllm import dag_registry
+                    _dag_priority = dag_registry.compute_priority(
+                        request.dag_id, request.node_id
+                    )
+                    if _dag_priority is not None:
+                        _priority = _dag_priority
+
                 generator = self.engine_client.generate(
                     engine_input,
                     sampling_params,
                     sub_request_id,
                     lora_request=lora_request,
                     trace_headers=trace_headers,
-                    priority=request.priority,
+                    priority=_priority,
                     data_parallel_rank=data_parallel_rank,
                     reasoning_ended=reasoning_ended,
                 )
