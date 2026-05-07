@@ -75,6 +75,22 @@ def register(
         _dags[dag_id] = _DAGEntry(nodes=dict(nodes), successors=successors)
 
 
+def update_node_cost(dag_id: str, node_id: str, new_cost: int) -> bool:
+    """
+    Update a node's expected token cost with an online LLM estimate.
+
+    Clears the cp_remaining cache so subsequent compute_priority() calls
+    use the new cost. Thread-safe; returns False if dag_id/node_id unknown.
+    """
+    with _registry_lock:
+        entry = _dags.get(dag_id)
+        if entry is None or node_id not in entry.nodes:
+            return False
+        entry.nodes[node_id] = max(1, new_cost)
+        entry._cp_cache.clear()  # invalidate all memoised cp_remaining values
+        return True
+
+
 def compute_priority(dag_id: str, node_id: str) -> int | None:
     """
     Return the scheduling priority for (dag_id, node_id).
