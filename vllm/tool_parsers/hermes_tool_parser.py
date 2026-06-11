@@ -92,7 +92,13 @@ class Hermes2ProToolParser(ToolParser):
         request: ChatCompletionRequest,
     ) -> ExtractedToolCallInformation:
         # sanity check; avoid unnecessary processing
-        if self.tool_call_start_token not in model_output:
+
+        # my modify
+        think_stripped = re.sub(r'<think>.*?</think>', '', model_output, flags=re.DOTALL).strip()
+
+        if self.tool_call_start_token not in think_stripped:
+        # if self.tool_call_start_token not in model_output:
+        
             return ExtractedToolCallInformation(
                 tools_called=False, tool_calls=[], content=model_output
             )
@@ -103,7 +109,7 @@ class Hermes2ProToolParser(ToolParser):
                 # tag and end-of-string so the result of
                 # findall is an array of tuples where one is a function call and
                 # the other is None
-                function_call_tuples = self.tool_call_regex.findall(model_output)
+                function_call_tuples = self.tool_call_regex.findall(think_stripped)
 
                 # load the JSON, and then use it to build the Function and
                 # Tool Call
@@ -125,7 +131,9 @@ class Hermes2ProToolParser(ToolParser):
                     for function_call in raw_function_calls
                 ]
 
-                content = model_output[: model_output.find(self.tool_call_start_token)]
+                # my modify
+                # content = model_output[: model_output.find(self.tool_call_start_token)]
+                content = think_stripped[: think_stripped.find(self.tool_call_start_token)]
                 return ExtractedToolCallInformation(
                     tools_called=True,
                     tool_calls=tool_calls,

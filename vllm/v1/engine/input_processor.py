@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import time
+from typing import Optional
 from collections.abc import Mapping
 from typing import Any, Literal
 
@@ -202,7 +203,7 @@ class InputProcessor:
         lora_request: LoRARequest | None = None,
         tokenization_kwargs: dict[str, Any] | None = None,
         trace_headers: Mapping[str, str] | None = None,
-        priority: int = 0,
+        priority: tuple[int, int] | int = 0,
         data_parallel_rank: int | None = None,
         resumable: bool = False,
     ) -> EngineCoreRequest:

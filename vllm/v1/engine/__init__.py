@@ -3,6 +3,7 @@
 
 import enum
 import time
+from typing import Optional
 from collections.abc import Mapping
 from typing import Any, Literal
 
@@ -88,8 +89,9 @@ class EngineCoreRequest(
     # belong to, to cover a race condition where the request is sent before
     # a wave finished notification is received.
     current_wave: int = 0
-    priority: int = 0
-
+    
+    priority: tuple[int, int] | int = 0
+    
     trace_headers: Mapping[str, str] | None = None
     resumable: bool = False
 

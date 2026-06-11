@@ -68,7 +68,7 @@ class Request:
         mm_features: list[MultiModalFeatureSpec] | None = None,
         lora_request: "LoRARequest | None" = None,
         cache_salt: str | None = None,
-        priority: int = 0,
+        priority: tuple[int, int] | int = 0,
         trace_headers: Mapping[str, str] | None = None,
         block_hasher: Callable[["Request"], list["BlockHash"]] | None = None,
         resumable: bool = False,
@@ -76,7 +76,11 @@ class Request:
     ) -> None:
         self.request_id = request_id
         self.client_index = client_index
+
+        if isinstance(priority, int):
+            priority = (priority, 0)
         self.priority = priority
+
         self.sampling_params = sampling_params
         self.pooling_params = pooling_params
         self.lora_request = lora_request

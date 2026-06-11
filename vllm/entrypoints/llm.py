@@ -1970,7 +1970,7 @@ class LLM:
         prompt: EngineInput,
         params: SamplingParams | PoolingParams,
         lora_request: LoRARequest | None = None,
-        priority: int = 0,
+        priority: tuple[int, int] | int = 0,
     ) -> str:
         if isinstance(params, SamplingParams):
             # We only care about the final output

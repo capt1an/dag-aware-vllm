@@ -78,6 +78,8 @@ from vllm.tool_parsers.utils import partial_json_loads
 from vllm.utils.collection_utils import as_list
 from vllm.utils.mistral import is_mistral_tokenizer
 
+from vllm.dag_registry import mark_completed
+
 if TYPE_CHECKING:
     from vllm.entrypoints.serve.render.serving import OpenAIServingRender
 
@@ -312,17 +314,19 @@ class OpenAIServingChat(OpenAIServing):
                 else:
                     reasoning_ended = None
 
+                # NOTE
                 # DAG-aware priority: if dag_id + node_id are present, look up
                 # cp_remaining from the server-side registry; else fall back to
                 # the raw priority field the client supplied.
                 _priority = request.priority
                 if request.dag_id and request.node_id:
-                    from vllm import dag_registry
-                    _dag_priority = dag_registry.compute_priority(
+                    from vllm.dag_registry import compute_priority
+                    _dag_priority = compute_priority(
                         request.dag_id, request.node_id
                     )
                     if _dag_priority is not None:
                         _priority = _dag_priority
+                print(f"dagid: {request.dag_id}, nodeid: {request.node_id}, Computed priority: {_priority}")
 
                 generator = self.engine_client.generate(
                     engine_input,
@@ -1275,6 +1279,10 @@ class OpenAIServingChat(OpenAIServing):
             yield f"data: {data}\n\n"
         # Send the final done message after all response.n are finished
         yield "data: [DONE]\n\n"
+        
+        if request.dag_id and request.node_id:
+            mark_completed(request.dag_id, request.node_id)
+            # print(f"STream: complete mark:", request.dag_id, request.node_id)
 
     async def chat_completion_full_generator(
         self,
@@ -1304,6 +1312,10 @@ class OpenAIServingChat(OpenAIServing):
                 err_type="InternalServerError",
                 status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
             )
+        
+        if request.dag_id and request.node_id:
+            mark_completed(request.dag_id, request.node_id)
+            # print(f"FULL gen: complete mark:", request.dag_id, request.node_id)
 
         choices: list[ChatCompletionResponseChoice] = []
         if self.tool_call_id_type == "kimi_k2":
