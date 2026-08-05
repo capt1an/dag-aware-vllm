@@ -1,4 +1,20 @@
 <!-- markdownlint-disable MD001 MD041 -->
+
+> 🧪 **Research Fork** — This is a modified version of [vLLM](https://github.com/vllm-project/vllm)
+> adding **DAG-aware scheduling** for multi-agent LLM workflows. All changes are
+> confined to the serving/API layer and are fully backward-compatible with
+> upstream vLLM. See [DAG_ANALYSIS.md](DAG_ANALYSIS.md) for technical details.
+>
+> **Added by**: 於晨阳 (ycy), 迟云帆 (cyf)
+> **Based on**: vLLM v0.19.1 ([`b1388b1fb`](https://github.com/vllm-project/vllm))
+> **License**: [Apache 2.0](LICENSE) (same as upstream)
+>
+> 📄 **Upstream citation** —
+> *"Efficient Memory Management for Large Language Model Serving with PagedAttention"*
+> Kwon et al., SOSP 2023. [[arXiv](https://arxiv.org/abs/2309.06180)] [[code](https://github.com/vllm-project/vllm)]
+
+---
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vllm-project/vllm/main/docs/assets/logos/vllm-logo-text-dark.png">
