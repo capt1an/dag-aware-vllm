@@ -73,6 +73,9 @@ class Request:
         block_hasher: Callable[["Request"], list["BlockHash"]] | None = None,
         resumable: bool = False,
         reasoning_ended: bool | None = None,
+        dag_id: str | None = None,
+        node_id: str | None = None,
+        dag_priority_offset: int = 0,
     ) -> None:
         self.request_id = request_id
         self.client_index = client_index
@@ -80,6 +83,9 @@ class Request:
         if isinstance(priority, int):
             priority = (priority, 0)
         self.priority = priority
+        self.dag_id = dag_id
+        self.node_id = node_id
+        self.dag_priority_offset = dag_priority_offset
 
         self.sampling_params = sampling_params
         self.pooling_params = pooling_params
@@ -202,6 +208,9 @@ class Request:
             block_hasher=block_hasher,
             resumable=request.resumable,
             reasoning_ended=request.reasoning_ended,
+            dag_id=request.dag_id,
+            node_id=request.node_id,
+            dag_priority_offset=request.dag_priority_offset,
         )
 
     def append_output_token_ids(

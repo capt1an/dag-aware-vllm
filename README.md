@@ -2,10 +2,11 @@
 
 > 🧪 **Research Fork** — This is a modified version of [vLLM](https://github.com/vllm-project/vllm)
 > adding **DAG-aware scheduling** for multi-agent LLM workflows. All changes are
-> confined to the serving/API layer and are fully backward-compatible with
-> upstream vLLM. See [DAG_ANALYSIS.md](DAG_ANALYSIS.md) for technical details.
+> implemented in the Responses/API layer, request metadata and core waiting
+> queues. See [DAG_ANALYSIS.md](DAG_ANALYSIS.md) for the original design,
+> [Codex integration](docs/development/codex-dag-integration.md) for this increment,
+> and [environment setup](docs/development/dag-environment.md) for installation.
 >
-> **Added by**: 於晨阳 (ycy), 迟云帆 (cyf)
 > **Based on**: vLLM v0.19.1 ([`b1388b1fb`](https://github.com/vllm-project/vllm))
 > **License**: [Apache 2.0](LICENSE) (same as upstream)
 >

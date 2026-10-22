@@ -331,6 +331,10 @@ class EngineCore:
         # (i.e. client-aborted vs stop criteria met).
         self.scheduler.finish_requests(request_ids, RequestStatus.FINISHED_ABORTED)
 
+    def update_dag_priorities(self, snapshot: dict) -> dict:
+        # Utility messages and schedule() execute on the core owner thread.
+        return self.scheduler.update_dag_priorities(snapshot)
+
     @contextmanager
     def log_error_detail(self, scheduler_output: SchedulerOutput):
         """Execute the model and log detailed info on failure."""

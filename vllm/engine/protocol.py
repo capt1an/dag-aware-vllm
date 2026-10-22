@@ -63,6 +63,10 @@ class EngineClient(ABC):
     @abstractmethod
     def dead_error(self) -> BaseException: ...
 
+    async def update_dag_priorities(self, snapshot: dict) -> dict:
+        """Synchronize a versioned DAG priority snapshot to core schedulers."""
+        raise NotImplementedError("This engine does not support DAG priority updates")
+
     @abstractmethod
     def generate(
         self,
@@ -80,6 +84,9 @@ class EngineClient(ABC):
         priority: tuple[int, int] | int = 0,
         data_parallel_rank: int | None = None,
         reasoning_ended: bool | None = None,
+        dag_id: str | None = None,
+        node_id: str | None = None,
+        dag_priority_offset: int = 0,
     ) -> AsyncGenerator[RequestOutput, None]:
         """Generate outputs for a request."""
         ...

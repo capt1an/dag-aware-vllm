@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 """
 DAGRegistry — server-side DAG metadata store for DAG-aware scheduling.
 
@@ -7,7 +9,7 @@ layer computes scheduling priority from the DAG's critical path, rather than
 requiring the client to supply a raw priority integer.
 
 Priority encoding (二元组, vLLM min-heap, 值越小越优先):
-    priority = (-dag_remaining_cp, -node_cp_remaining)
+    priority = (dag_remaining_cp, -node_cp_remaining)
 
   - 第一级 dag_remaining_cp：整个 DAG 剩余的关键路径长度越小，
     该 DAG 的所有节点整体排在前面，保证"工作量最小的 DAG 先跑"。
@@ -25,12 +27,14 @@ dag_remaining_cp 定义：
     dag_registry / 相对 import 等），所有调用方共享同一个 _DAGStore
     实例，从根本上避免重复 import 导致的多份 _dags 字典问题。
 """
+
 from __future__ import annotations
 
 import logging
 import sys
 import threading
 from dataclasses import dataclass, field
+from typing import cast
 
 logger = logging.getLogger(__name__)
 
@@ -39,11 +43,13 @@ logger = logging.getLogger(__name__)
 # DAG entry
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _DAGEntry:
-    nodes: dict[str, int]              # node_id -> expected_tokens
-    successors: dict[str, list[str]]   # node_id -> [successor node_ids]
-    predecessors: dict[str, list[str]] # node_id -> [predecessor node_ids]
+    nodes: dict[str, int]  # node_id -> expected_tokens
+    successors: dict[str, list[str]]  # node_id -> [successor node_ids]
+    predecessors: dict[str, list[str]]  # node_id -> [predecessor node_ids]
+    version: int = 1
 
     _cp_cache: dict[str, int] = field(default_factory=dict, init=False)
     # None 表示缓存已失效，需要重新计算
@@ -90,7 +96,8 @@ class _DAGEntry:
         self._dag_remaining_cache = result
         logger.debug(
             "dag_remaining_cp computed: %d  (completed=%s)",
-            result, self.completed_nodes,
+            result,
+            self.completed_nodes,
         )
         return result
 
@@ -98,10 +105,10 @@ class _DAGEntry:
         if not self.nodes:
             return 0
         frontier = [
-            n for n in self.nodes
+            n
+            for n in self.nodes
             if n not in self.completed_nodes
-            and all(p in self.completed_nodes
-                    for p in self.predecessors.get(n, []))
+            and all(p in self.completed_nodes for p in self.predecessors.get(n, []))
         ]
         if not frontier:
             return 0
@@ -146,10 +153,12 @@ class _DAGStore:
             successors.setdefault(src, []).append(dst)
             predecessors.setdefault(dst, []).append(src)
         with self._lock:
+            previous = self._dags.get(dag_id)
             self._dags[dag_id] = _DAGEntry(
                 nodes=dict(nodes),
                 successors=successors,
                 predecessors=predecessors,
+                version=previous.version + 1 if previous else 1,
             )
         logger.debug("registered dag '%s' with %d nodes", dag_id, len(nodes))
 
@@ -159,18 +168,17 @@ class _DAGStore:
             if entry is None or node_id not in entry.nodes:
                 return False
             entry.nodes[node_id] = max(1, new_cost)
+            entry.version += 1
             entry._cp_cache.clear()
             entry.invalidate_dag_remaining_cache()
             return True
 
-    def compute_priority(
-        self, dag_id: str, node_id: str
-    ) -> tuple[int, int] | None:
+    def compute_priority(self, dag_id: str, node_id: str) -> tuple[int, int] | None:
         with self._lock:
             entry = self._dags.get(dag_id)
             if entry is None or node_id not in entry.nodes:
                 return None
-            dag_remaining  = entry.dag_remaining_cp()
+            dag_remaining = entry.dag_remaining_cp()
             node_remaining = entry.cp_remaining(node_id)
         return (dag_remaining, -node_remaining)
 
@@ -180,26 +188,72 @@ class _DAGStore:
             if entry is None:
                 logger.warning(
                     "mark_completed: dag '%s' not found (store id=%d)",
-                    dag_id, id(self._dags),
+                    dag_id,
+                    id(self._dags),
                 )
                 return False
             if node_id not in entry.nodes:
                 logger.warning(
                     "mark_completed: node '%s' not found in dag '%s'",
-                    node_id, dag_id,
+                    node_id,
+                    dag_id,
                 )
                 return False
             entry.completed_nodes.add(node_id)
+            entry.version += 1
             entry.invalidate_dag_remaining_cache()
             logger.debug(
                 "mark_completed: dag='%s' node='%s' completed=%s",
-                dag_id, node_id, entry.completed_nodes,
+                dag_id,
+                node_id,
+                entry.completed_nodes,
             )
             return True
 
     def list_dags(self) -> list[str]:
         with self._lock:
             return list(self._dags.keys())
+
+    def reopen_node(self, dag_id: str, node_id: str) -> bool:
+        """A native follow-up resumes this task and invalidates finished dependents."""
+        with self._lock:
+            entry = self._dags.get(dag_id)
+            if entry is None or node_id not in entry.nodes:
+                return False
+            pending = [node_id]
+            seen = set()
+            while pending:
+                node = pending.pop()
+                if node in seen:
+                    continue
+                seen.add(node)
+                entry.completed_nodes.discard(node)
+                pending.extend(entry.successors.get(node, []))
+            entry.invalidate_dag_remaining_cache()
+            entry.version += 1
+            return True
+
+    def snapshot(self, dag_id: str) -> dict | None:
+        """Return a consistent diagnostic view without exposing mutable state."""
+        with self._lock:
+            entry = self._dags.get(dag_id)
+            if entry is None:
+                return None
+            return {
+                "dag_id": dag_id,
+                "version": entry.version,
+                "nodes": dict(entry.nodes),
+                "edges": [
+                    [src, dst]
+                    for src, destinations in entry.successors.items()
+                    for dst in destinations
+                ],
+                "completed_nodes": sorted(entry.completed_nodes),
+                "dag_remaining_cp": entry.dag_remaining_cp(),
+                "node_cp_remaining": {
+                    node: entry.cp_remaining(node) for node in entry.nodes
+                },
+            }
 
 
 def _get_store() -> _DAGStore:
@@ -209,17 +263,18 @@ def _get_store() -> _DAGStore:
     无论本模块以 'vllm.dag_registry'、'dag_registry' 还是相对路径被 import，
     所有调用方拿到的都是同一个对象。
     """
-    store = sys.modules.get(_STORE_KEY)
+    store = cast("_DAGStore | None", sys.modules.get(_STORE_KEY))
     if store is None:
         store = _DAGStore()
         sys.modules[_STORE_KEY] = store  # type: ignore[assignment]
         logger.debug("_DAGStore created (id=%d)", id(store))
-    return store  # type: ignore[return-value]
+    return store
 
 
 # ---------------------------------------------------------------------------
 # 模块级公开函数（保持原有调用接口不变）
 # ---------------------------------------------------------------------------
+
 
 def register(
     dag_id: str,
@@ -258,9 +313,8 @@ def compute_priority(dag_id: str, node_id: str) -> tuple[int, int] | None:
     Returns
     -------
     (dag_priority, node_priority) : tuple[int, int]
-        Both components are negated so that larger values sort first in
-        vLLM's min-heap PriorityRequestQueue:
-          - dag_priority  = -dag_remaining_cp  (DAG 剩余关键路径越长越优先)
+        The min-heap prioritizes smaller remaining DAGs, then longer node paths:
+          - dag_priority  = dag_remaining_cp  (DAG 剩余关键路径越短越优先)
           - node_priority = -node_cp_remaining (节点关键路径越长越优先)
 
     Returns None if dag_id or node_id is not registered, allowing the
@@ -281,3 +335,11 @@ def mark_completed(dag_id: str, node_id: str) -> bool:
 
 def list_dags() -> list[str]:
     return _get_store().list_dags()
+
+
+def snapshot(dag_id: str) -> dict | None:
+    return _get_store().snapshot(dag_id)
+
+
+def reopen_node(dag_id: str, node_id: str) -> bool:
+    return _get_store().reopen_node(dag_id, node_id)

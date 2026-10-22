@@ -212,6 +212,12 @@ class ResponsesRequest(OpenAIBaseModel):
             "if the served model does not use priority scheduling."
         ),
     )
+    dag_id: str | None = Field(
+        default=None, description="Agent-task DAG registered through /v1/dags."
+    )
+    node_id: str | None = Field(
+        default=None, description="Agent-task node; completion is reported separately."
+    )
     cache_salt: str | None = Field(
         default=None,
         description=(

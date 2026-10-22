@@ -1,0 +1,4 @@
+# Additional compatibility constraints for the Codex Responses integration.
+# Core torch/CUDA dependencies remain declared in requirements/cuda.txt.
+transformers==5.5.3
+huggingface-hub==1.10.2

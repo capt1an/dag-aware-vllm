@@ -34,6 +34,10 @@ class PauseState(enum.IntEnum):
 
 
 class SchedulerInterface(ABC):
+    def update_dag_priorities(self, snapshot: dict) -> dict:
+        """Apply a versioned DAG snapshot on the scheduler owner thread."""
+        raise NotImplementedError("DAG priority updates are not supported")
+
     @abstractmethod
     def __init__(
         self,

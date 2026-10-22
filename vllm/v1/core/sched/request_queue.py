@@ -21,6 +21,11 @@ class RequestQueue(ABC):
     """Abstract base class for request queues."""
 
     @abstractmethod
+    def update_priorities(self, updates: dict[str, tuple[int, int]]) -> int:
+        """Update queued objects in place and restore the queue's ordering."""
+        pass
+
+    @abstractmethod
     def add_request(self, request: Request) -> None:
         """Add a request to the queue according to the policy."""
         pass
@@ -74,6 +79,16 @@ class RequestQueue(ABC):
 
 class FCFSRequestQueue(deque[Request], RequestQueue):
     """A first-come-first-served queue that supports deque operations."""
+
+    def update_priorities(self, updates: dict[str, tuple[int, int]]) -> int:
+        changed = 0
+        for request in self:
+            if request.request_id in updates:
+                priority = updates[request.request_id]
+                if request.priority != priority:
+                    request.priority = priority
+                    changed += 1
+        return changed
 
     def add_request(self, request: Request) -> None:
         """Add a request to the queue according to FCFS policy."""
@@ -140,6 +155,20 @@ class PriorityRequestQueue(RequestQueue):
 
     def __init__(self) -> None:
         self._heap: list[Request] = []
+
+    def update_priorities(self, updates: dict[str, tuple[int, int]]) -> int:
+        changed = 0
+        # Do not use __iter__: it pops from a copy of the heap while yielding
+        # references, so mutating yielded priorities would invalidate that copy.
+        for request in self._heap:
+            if request.request_id in updates:
+                priority = updates[request.request_id]
+                if request.priority != priority:
+                    request.priority = priority
+                    changed += 1
+        if changed:
+            heapq.heapify(self._heap)
+        return changed
 
     def add_request(self, request: Request) -> None:
         """Add a request to the queue according to priority policy."""

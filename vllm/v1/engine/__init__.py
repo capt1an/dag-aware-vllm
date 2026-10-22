@@ -3,7 +3,6 @@
 
 import enum
 import time
-from typing import Optional
 from collections.abc import Mapping
 from typing import Any, Literal
 
@@ -89,9 +88,9 @@ class EngineCoreRequest(
     # belong to, to cover a race condition where the request is sent before
     # a wave finished notification is received.
     current_wave: int = 0
-    
+
     priority: tuple[int, int] | int = 0
-    
+
     trace_headers: Mapping[str, str] | None = None
     resumable: bool = False
 
@@ -102,6 +101,11 @@ class EngineCoreRequest(
     external_req_id: str | None = None
 
     reasoning_ended: bool | None = None
+
+    # Scheduling metadata, independent of model inputs and generated tokens.
+    dag_id: str | None = None
+    node_id: str | None = None
+    dag_priority_offset: int = 0
 
     @property
     def params(self) -> SamplingParams | PoolingParams:

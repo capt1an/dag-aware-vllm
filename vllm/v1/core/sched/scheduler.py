@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import itertools
+import json
+import os
 import time
 from collections import defaultdict, deque
 from collections.abc import Iterable
@@ -83,6 +85,8 @@ class Scheduler(SchedulerInterface):
         self.kv_events_config = vllm_config.kv_events_config
         self.parallel_config = vllm_config.parallel_config
         self.log_stats = log_stats
+        # Opt-in research instrumentation; does not change scheduling decisions.
+        self.dag_schedule_trace = os.environ.get("VLLM_DAG_SCHEDULE_TRACE") == "1"
         self.observability_config = vllm_config.observability_config
         self.kv_metrics_collector: KVCacheMetricsCollector | None = None
         if self.observability_config.kv_cache_metrics:
@@ -167,6 +171,9 @@ class Scheduler(SchedulerInterface):
         # requests skipped in waiting flow due async deps or constraints.
         self.skipped_waiting = create_request_queue(self.policy)
         self.running: list[Request] = []
+        self.dag_priority_snapshots: dict[
+            str, tuple[int, dict[str, tuple[int, int]]]
+        ] = {}
 
         # The request IDs that are finished in between the previous and the
         # current steps. This is used to notify the workers about the finished
@@ -806,6 +813,7 @@ class Scheduler(SchedulerInterface):
                     continue
 
                 self.running.append(request)
+                self._trace_dag_schedule("admit", request)
                 if self.log_stats:
                     request.record_event(
                         EngineCoreEventType.SCHEDULED, scheduled_timestamp
@@ -973,6 +981,7 @@ class Scheduler(SchedulerInterface):
             request.record_event(EngineCoreEventType.PREEMPTED, timestamp)
 
         # Put the request back to the waiting queue.
+        self._refresh_dag_priority(request)
         self.waiting.prepend_request(request)
 
     def _update_after_schedule(self, scheduler_output: SchedulerOutput) -> None:
@@ -1564,10 +1573,94 @@ class Scheduler(SchedulerInterface):
         )
 
     def _enqueue_waiting_request(self, request: Request) -> None:
+        self._refresh_dag_priority(request)
         if self._is_blocked_waiting_status(request.status):
             self.skipped_waiting.add_request(request)
         else:
             self.waiting.add_request(request)
+        self._trace_dag_schedule("enqueue", request)
+
+    def _dag_priority(self, request: Request) -> tuple[int, int] | None:
+        dag_id, node_id = request.dag_id, request.node_id
+        if dag_id is None or node_id is None:
+            return None
+        entry = self.dag_priority_snapshots.get(dag_id)
+        if entry is None:
+            return None
+        priority = entry[1].get(node_id)
+        if priority is None:
+            return None
+        return (priority[0], priority[1] + request.dag_priority_offset)
+
+    def _refresh_dag_priority(self, request: Request) -> None:
+        if (priority := self._dag_priority(request)) is not None:
+            request.priority = priority
+
+    def update_dag_priorities(self, snapshot: dict) -> dict:
+        """Apply one complete DAG version between scheduler decisions."""
+        dag_id, version = snapshot["dag_id"], snapshot["version"]
+        current = self.dag_priority_snapshots.get(dag_id)
+        if current is not None and version <= current[0]:
+            return {"dag_id": dag_id, "version": current[0], "applied": False}
+        priorities = {
+            node: (snapshot["dag_remaining_cp"], -cost)
+            for node, cost in snapshot["node_cp_remaining"].items()
+        }
+        self.dag_priority_snapshots[dag_id] = (version, priorities)
+        # Build all replacement values before mutating either queue. Running
+        # requests retain their priority until they re-enter a waiting queue.
+        updates = {}
+        for request in self.requests.values():
+            if getattr(request, "dag_id", None) == dag_id:
+                priority = self._dag_priority(request)
+                if priority is not None:
+                    updates[request.request_id] = priority
+        waiting = self.waiting.update_priorities(updates)
+        skipped = self.skipped_waiting.update_priorities(updates)
+        result = {
+            "dag_id": dag_id,
+            "version": version,
+            "applied": True,
+            "waiting_changed": waiting,
+            "skipped_waiting_changed": skipped,
+        }
+        if self.dag_schedule_trace:
+            logger.info(
+                "DAG_PRIORITY_REFRESH %s",
+                json.dumps(
+                    {
+                        **result,
+                        "monotonic_ns": time.monotonic_ns(),
+                        "priorities": updates,
+                    }
+                ),
+            )
+        return result
+
+    def _trace_dag_schedule(self, event: str, request: Request) -> None:
+        if not self.dag_schedule_trace:
+            return
+        logger.info(
+            "DAG_SCHED_TRACE %s",
+            json.dumps(
+                {
+                    "event": event,
+                    "monotonic_ns": time.monotonic_ns(),
+                    "request_id": request.request_id,
+                    "priority": request.priority,
+                    "dag_id": getattr(request, "dag_id", None),
+                    "node_id": getattr(request, "node_id", None),
+                    "arrival_time": request.arrival_time,
+                    "running_count": len(self.running),
+                    "waiting": [
+                        {"request_id": r.request_id, "priority": r.priority}
+                        for queue in (self.waiting, self.skipped_waiting)
+                        for r in queue
+                    ],
+                },
+                separators=(",", ":"),
+            ),
+        )
 
     def _select_waiting_queue_for_scheduling(self) -> RequestQueue | None:
         if self.policy == SchedulingPolicy.FCFS:

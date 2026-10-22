@@ -301,6 +301,9 @@ class AsyncLLM(EngineClient):
         data_parallel_rank: int | None = None,
         prompt_text: str | None = None,
         reasoning_ended: bool | None = None,
+        dag_id: str | None = None,
+        node_id: str | None = None,
+        dag_priority_offset: int = 0,
     ) -> RequestOutputCollector:
         """Add new request to the AsyncLLM."""
 
@@ -321,6 +324,8 @@ class AsyncLLM(EngineClient):
             )
 
         if isinstance(prompt, AsyncGenerator):
+            if dag_id is not None:
+                raise NotImplementedError("DAG scheduling requires non-streaming input")
             if reasoning_ended is not None:
                 raise NotImplementedError
 
@@ -369,6 +374,11 @@ class AsyncLLM(EngineClient):
 
         if reasoning_ended is not None:
             request.reasoning_ended = reasoning_ended
+
+        if dag_id is not None:
+            request.dag_id = dag_id
+            request.node_id = node_id
+            request.dag_priority_offset = dag_priority_offset
 
         self.input_processor.assign_request_id(request)
 
@@ -542,6 +552,9 @@ class AsyncLLM(EngineClient):
         priority: tuple[int, int] | int = 0,
         data_parallel_rank: int | None = None,
         reasoning_ended: bool | None = None,
+        dag_id: str | None = None,
+        node_id: str | None = None,
+        dag_priority_offset: int = 0,
     ) -> AsyncGenerator[RequestOutput, None]:
         """
         Main function called by the API server to kick off a request
@@ -571,6 +584,9 @@ class AsyncLLM(EngineClient):
                 data_parallel_rank=data_parallel_rank,
                 prompt_text=prompt_text,
                 reasoning_ended=reasoning_ended,
+                dag_id=dag_id,
+                node_id=node_id,
+                dag_priority_offset=dag_priority_offset,
             )
 
             # The output_handler task pushes items into the queue.
@@ -722,6 +738,11 @@ class AsyncLLM(EngineClient):
 
         if self.log_requests:
             logger.info("Aborted request(s) %s.", ",".join(request_ids))
+
+    async def update_dag_priorities(self, snapshot: dict) -> dict:
+        return await self.engine_core.call_utility_async(
+            "update_dag_priorities", snapshot
+        )
 
     async def pause_generation(
         self,

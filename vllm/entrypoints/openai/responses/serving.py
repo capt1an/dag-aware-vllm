@@ -339,6 +339,15 @@ class OpenAIServingResponses(OpenAIServing):
         maybe_validation_error = self._validate_create_responses_input(request)
         if maybe_validation_error is not None:
             return maybe_validation_error
+        if bool(request.dag_id) != bool(request.node_id):
+            return self.create_error_response(
+                "dag_id and node_id must be supplied together"
+            )
+        if request.dag_id and request.node_id:
+            from vllm import dag_registry
+
+            if dag_registry.compute_priority(request.dag_id, request.node_id) is None:
+                return self.create_error_response("DAG or node is not registered")
 
         # If the engine is dead, raise the engine's DEAD_ERROR.
         # This is required for the streaming case, where we return a
@@ -486,6 +495,8 @@ class OpenAIServingResponses(OpenAIServing):
                 lora_request=lora_request,
                 priority=request.priority,
                 trace_headers=trace_headers,
+                dag_id=request.dag_id,
+                node_id=request.node_id,
             )
             generators.append(generator)
 
@@ -632,6 +643,8 @@ class OpenAIServingResponses(OpenAIServing):
         lora_request: LoRARequest | None = None,
         priority: int = 0,
         trace_headers: Mapping[str, str] | None = None,
+        dag_id: str | None = None,
+        node_id: str | None = None,
     ):
         max_model_len = self.model_config.max_model_len
 
@@ -648,13 +661,36 @@ class OpenAIServingResponses(OpenAIServing):
                 lora_request=lora_request,
             )
 
+            dispatch_priority: tuple[int, int] | int = priority
+            dag_metadata = {}
+            if dag_id and node_id:
+                from vllm import dag_registry
+
+                resolved = dag_registry.compute_priority(dag_id, node_id)
+                if resolved is None:
+                    raise ValueError("DAG or node disappeared before dispatch")
+                # Retain the existing continuation preference within this DAG.
+                dispatch_priority = (resolved[0], resolved[1] - int(sub_request > 0))
+                dag_metadata = dict(
+                    dag_id=dag_id,
+                    node_id=node_id,
+                    dag_priority_offset=-int(sub_request > 0),
+                )
+                logger.info(
+                    "DAG_SCHEDULE request_id=%s dag_id=%s node_id=%s priority=%s",
+                    sub_request_id,
+                    dag_id,
+                    node_id,
+                    dispatch_priority,
+                )
             generator = self.engine_client.generate(
                 engine_input,
                 sampling_params,
                 sub_request_id,
                 lora_request=lora_request,
                 trace_headers=trace_headers,
-                priority=priority,
+                priority=dispatch_priority,
+                **dag_metadata,
             )
 
             async for res in generator:
